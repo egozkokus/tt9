@@ -43,9 +43,16 @@ ext.getVersionName = { ->
 	return generateVersionName()
 }
 
+// Megalife B2: the keyboard that ships in the ROM today reports versionCode 1700 with versionName
+// 62.1 — but upstream's commit count one past v62.0 is 1597, so that 1700 was set by hand. Our
+// natural count at v64.1 is 1646, BELOW it, and an install over the shipped build would be refused
+// as a downgrade. Offset every Megalife build above that mark. The count still grows with each
+// commit, so ordering is preserved; never lower this number.
+ext.MEGALIFE_VERSION_CODE_OFFSET = 1000
+
 ext.getVersionCode = { ->
 	String commitsCount = execThing("git rev-list --count HEAD")
-	return Integer.valueOf(commitsCount)
+	return Integer.valueOf(commitsCount) + MEGALIFE_VERSION_CODE_OFFSET
 }
 
 ext.getDebugVersion = { ->
