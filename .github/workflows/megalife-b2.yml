@@ -1,0 +1,135 @@
+# Megalife B2 — build the keyboard and publish it on every push to this fork's branch.
+#
+# Deliberately a SEPARATE file from upstream's build.yml, which is left untouched so a
+# rebase onto a newer tt9 never conflicts here. Upstream's workflow also does not fire
+# for us: it triggers on `push: master` and on pull requests, and our work lives on
+# megalife/**, which is why this fork had zero runs before this file existed.
+#
+# The artifact is UNSIGNED, and that is correct rather than a shortcut. The ROM imports
+# it with `certificate: "platform"` (vendor/megalife/apps/MLKeyboard/Android.bp), and
+# soong strips whatever signature the prebuilt carries and signs it itself. So nothing
+# here needs the platform key — and nothing here may have it: this repository is public.
+# A directly side-loadable build is a separate, deliberate step done outside CI.
+
+name: Megalife B2
+
+on:
+  push:
+    branches: [ "megalife/**" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # REQUIRED. version-tools.gradle derives versionName from the number of v*
+          # tags and versionCode from `git rev-list --count HEAD`. A shallow checkout
+          # sees one commit and no tags, and silently produces version 1.0 / code 1001
+          # — below the 1700 already on the handsets, so the package manager would
+          # refuse it as a downgrade. Measured, not guessed.
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          # 21, not 17: validateLanguages calls Locale.of(String, String), which
+          # arrived in Java 19. On 17 the build fails parsing the Yiddish locale.
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build the release APK
+        run: ./gradlew :app:assembleFullRelease
+
+      - name: Locate the artifact
+        id: apk
+        run: |
+          set -euo pipefail
+          path=$(ls app/build/outputs/apk/full/release/*.apk | head -1)
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+          echo "Built $path"
+
+      - name: Verify what this fork exists for
+        run: |
+          set -euo pipefail
+          AAPT=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          APK="${{ steps.apk.outputs.path }}"
+          badging=$("$AAPT" dump badging "$APK")
+          fail=0
+
+          # 1. No launcher icon. This is the whole point of the fork; if a rebase or a
+          #    manifest merge puts the intent-filter back, it must not ship quietly.
+          if grep -q '^launchable-activity' <<< "$badging"; then
+            echo "::error::the APK declares a launchable activity — the launcher icon is back"; fail=1
+          fi
+
+          # 2. Exactly the five languages this product ships, by name, not by count.
+          for lang in en he ji es fr; do
+            unzip -l "$APK" "assets/languages/dictionaries/${lang}-utf8.zip" >/dev/null 2>&1 \
+              || { echo "::error::missing dictionary: $lang"; fail=1; }
+          done
+          extra=$(unzip -l "$APK" 'assets/languages/dictionaries/*.zip' | grep -c 'utf8.zip' || true)
+          if [ "$extra" -ne 5 ]; then
+            echo "::error::expected 5 bundled dictionaries, found $extra"; fail=1
+          fi
+
+          # 3. The Yiddish interface is present.
+          grep -q "'ji'" <<< "$badging" || { echo "::error::the ji locale is missing"; fail=1; }
+
+          # 4. Above the build already installed on the handsets (versionCode 1700).
+          code=$(sed -nE "s/.*versionCode='([0-9]+)'.*/\1/p" <<< "$badging")
+          if [ "$code" -le 1700 ]; then
+            echo "::error::versionCode $code would be refused as a downgrade over the shipped 1700"; fail=1
+          fi
+
+          echo "versionCode=$code"
+          exit $fail
+
+      - name: Name it as the ROM expects
+        id: pkg
+        run: |
+          set -euo pipefail
+          cp "${{ steps.apk.outputs.path }}" MLKeyboard.apk
+          echo "sha=$(sha256sum MLKeyboard.apk | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          AAPT=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          "$AAPT" dump badging MLKeyboard.apk \
+            | sed -nE "s/.*versionName='([^']+)'.*/version=\1/p" >> "$GITHUB_OUTPUT"
+
+      - name: Keep it as a run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MLKeyboard-${{ steps.pkg.outputs.version }}
+          path: MLKeyboard.apk
+          if-no-files-found: error
+
+      - name: Publish it at a stable URL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # `gh` ships on the runner, so this needs no third-party action — one less
+          # thing to trust in a public repository.
+          gh release delete b2-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create b2-latest MLKeyboard.apk \
+            --title "MLKeyboard ${{ steps.pkg.outputs.version }}" \
+            --prerelease \
+            --notes "Automatic build of \`${{ github.ref_name }}\` at \`${{ github.sha }}\`.
+
+          **UNSIGNED, on purpose.** The ROM imports this with \`certificate: \"platform\"\`, so
+          soong strips any signature and signs it itself. Drop it into \`g36-overlay\` as
+          \`MLKeyboard.apk\` and bump \`overlay.lock\`.
+
+          It is therefore *not* directly side-loadable over the installed system keyboard —
+          that needs platform-signing, done outside this public repository.
+
+          \`\`\`
+          sha256  ${{ steps.pkg.outputs.sha }}
+          \`\`\`"
