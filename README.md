@@ -4,6 +4,8 @@ TT9 is a Nokia-style T9 keyboard for Android. It provides predictive text input 
 
 This is a modernized version of the [original project](https://github.com/Clam-/TraditionalT9) by Clam-.
 
+> **Note:** this repository is a modified fork maintained by Megalife for the B2 handset. See [MEGALIFE-FORK.md](MEGALIFE-FORK.md) for what was changed and why. For the original project, go to [sspanak/tt9](https://github.com/sspanak/tt9).
+
 ## 📷 Screenshots
 <table>
     <tr>
