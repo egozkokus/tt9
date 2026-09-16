@@ -20,7 +20,19 @@
 <!-- The attributes in this XML file provide configuration information -->
 <!-- for the Search Manager. -->
 
+<!-- Megalife B2: declare the five languages this keyboard ships as keyboard subtypes, and mark
+	it a default IME. Android replaces a system keyboard with the "most applicable" one whenever the
+	system language changes, and it chooses only among system IMEs that are marked default and
+	declare a keyboard subtype for the new language. Without these, TT9 could never be chosen, and
+	every language change handed the keypad to Gboard, which types no letters on it. The app itself
+	does not read subtypes; it keeps choosing its language with its own key. -->
 <input-method
 	xmlns:android="http://schemas.android.com/apk/res/android"
-	android:settingsActivity="io.github.sspanak.tt9.preferences.PreferencesActivity">
+	android:settingsActivity="io.github.sspanak.tt9.preferences.PreferencesActivity"
+	android:isDefault="true">
+	<subtype android:languageTag="he-IL" android:imeSubtypeMode="keyboard" android:isAsciiCapable="false" />
+	<subtype android:languageTag="yi" android:imeSubtypeMode="keyboard" android:isAsciiCapable="false" />
+	<subtype android:languageTag="en-US" android:imeSubtypeMode="keyboard" android:isAsciiCapable="true" />
+	<subtype android:languageTag="es-ES" android:imeSubtypeMode="keyboard" android:isAsciiCapable="true" />
+	<subtype android:languageTag="fr-FR" android:imeSubtypeMode="keyboard" android:isAsciiCapable="true" />
 </input-method>
